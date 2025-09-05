@@ -3,68 +3,69 @@ from PIL import Image
 import torch
 from transformers import BlipProcessor, BlipForConditionalGeneration
 
+# --- Constants ---
+# Using Salesforce's BLIP as it's a popular and effective model for this task.
+MODEL_ID = "Salesforce/blip-image-captioning-large"
+
 # --- App Configuration ---
-st.set_page_config(page_title="🖼️ AI Image Caption Generator", layout="centered")
+st.set_page_config(page_title="🖼️ AI Image Captioner", layout="centered")
 st.title("🖼️ AI Image Caption Generator")
-st.write("Upload an image and let the AI describe it for you!")
+st.write("Give me an image, and I'll tell you what I see!")
 
 # --- Model Loading ---
-# We use st.cache_resource to load the model only once, improving performance.
 @st.cache_resource
-def load_model():
-    """Loads the BLIP image captioning model and processor from Hugging Face."""
-    model_id = "Salesforce/blip-image-captioning-large"
-    
-    # Check for GPU availability
+def get_model_and_processor():
+    """
+    Load the BLIP model and processor from Hugging Face.
+    We cache this to avoid reloading it every time the app reruns.
+    """
+    print("Loading BLIP model...") # Debugging print
     device = "cuda" if torch.cuda.is_available() else "cpu"
     
-    processor = BlipProcessor.from_pretrained(model_id)
-    model = BlipForConditionalGeneration.from_pretrained(model_id).to(device)
+    processor = BlipProcessor.from_pretrained(MODEL_ID)
+    model = BlipForConditionalGeneration.from_pretrained(MODEL_ID).to(device)
     
+    print("Model loaded successfully on:", device)
     return model, processor, device
 
-# Load the model and processor
-model, processor, device = load_model()
+# A small helper function, common in human-written code to keep the main block clean.
+def display_results(image, caption):
+    st.subheader("Your Image:")
+    st.image(image, use_column_width=True)
+    
+    st.subheader("AI-Generated Caption:")
+    st.markdown(f"**📝 {caption.capitalize()}**")
 
-# --- Image Captioning Function ---
-def generate_caption(image_file):
-    """Generates a caption for the given image file."""
-    try:
-        # Open the image file
-        raw_image = Image.open(image_file).convert('RGB')
-        
-        # Preprocess the image
-        inputs = processor(raw_image, return_tensors="pt").to(device)
-        
-        # Generate the caption
-        with torch.no_grad(): # Disable gradient calculation for inference
-            out = model.generate(**inputs, max_new_tokens=50) # Increased max_new_tokens
-            
-        # Decode the generated ids to text
-        caption = processor.decode(out[0], skip_special_tokens=True)
-        return caption, raw_image
-        
-    except Exception as e:
-        return f"An error occurred: {e}", None
+# --- Main Logic ---
+model, processor, device = get_model_and_processor()
 
-# --- Streamlit UI ---
-st.sidebar.header("About")
+st.sidebar.header("How It Works")
 st.sidebar.info(
-    "This app uses the 'BLIP' model from Salesforce Research, a state-of-the-art "
-    "model for image captioning. Simply upload your image to see it in action."
+    "This app uses a pre-trained AI model called BLIP (Bootstrapping Language-Image Pre-training) "
+    "to analyze the content of an image and generate a text description."
 )
 
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+uploaded_file = st.file_uploader("Upload an image...", type=["jpg", "jpeg", "png"])
 
-if uploaded_file is not None:
-    st.subheader("Your Image:")
-    st.image(uploaded_file, use_column_width=True)
-    
-    with st.spinner("AI is thinking... 🧠"):
-        caption, _ = generate_caption(uploaded_file)
+if uploaded_file:
+    try:
+        raw_image = Image.open(uploaded_file).convert('RGB')
         
-        st.subheader("Generated Caption:")
-        st.markdown(f"**{caption.capitalize()}**")
+        with st.spinner("AI is thinking... 🧠"):
+            # Preprocess the image
+            inputs = processor(raw_image, return_tensors="pt").to(device)
+            
+            # Generate the caption
+            # No need for torch.no_grad() here, inference mode is handled by HF.
+            out = model.generate(**inputs, max_new_tokens=50)
+            
+            # Decode the result
+            caption = processor.decode(out[0], skip_special_tokens=True)
+            
+        display_results(uploaded_file, caption)
+        
+    except Exception as e:
+        st.error(f"Oops, something went wrong. Please try another image. Error: {e}")
 
 else:
-    st.info("Upload an image to get started.")
+    st.info("Please upload an image to begin.")
